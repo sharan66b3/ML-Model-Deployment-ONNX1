@@ -1,32 +1,37 @@
-// --- 1. CONFIGURATION: You MUST get these exact values from your Python script! ---
-// --- REPLACE ALL PLACEHOLDER VALUES BELOW WITH YOUR MODEL'S CONSTANTS ---
+// --- 1. CONFIGURATION: CUSTOMIZE THESE VALUES ---
+// You MUST replace all placeholder values with the exact means/stds from your Python training.
 
-// --- STANDARD SCALER CONSTANTS (Example for 'Rating' and 'age') ---
+// --- STANDARD SCALER CONSTANTS (2 features) ---
 const RATING_MEAN = 3.3; // <--- REPLACE THIS VALUE
 const RATING_STD = 0.5;  // <--- REPLACE THIS VALUE
 const AGE_MEAN = 35.0;   // <--- REPLACE THIS VALUE
 const AGE_STD = 20.0;    // <--- REPLACE THIS VALUE
 
-// --- ONE-HOT ENCODING MAPPING (Customized function) ---
-// This function needs to cover ALL states in your dataset, in the order of your Python OHE output.
+// --- ONE-HOT ENCODING MAPPING (38 features) ---
+// Total Features: 2 (Scaled) + 5 (Binary) + 38 (OHE) = 45.
 function getOneHotState(jobState) {
-    // You MUST calculate the exact number of OHE columns for job_state 
-    // and ensure the indices match your Python ColumnTransformer output order.
-    let stateArray = new Array(40).fill(0.0); // Size of your OHE output for states
+    // FIXED: The OHE array size must be 38 features long.
+    let stateArray = new Array(38).fill(0.0); 
 
+    // Indices must be checked against your Python ColumnTransformer output order.
     switch (jobState) {
-        case 'CA': stateArray[0] = 1.0; break; // Check the index!
-        case 'NY': stateArray[1] = 1.0; break; // Check the index!
-        case 'VA': stateArray[2] = 1.0; break; // Check the index!
-        // ... add all other states and their corresponding index 
-        default: stateArray[40-1] = 1.0; break; // Set the 'Others' column (or last column)
+        case 'CA': stateArray[0] = 1.0; break; 
+        case 'NY': stateArray[1] = 1.0; break; 
+        case 'VA': stateArray[2] = 1.0; break; 
+        case 'TX': stateArray[3] = 1.0; break; 
+        case 'MD': stateArray[4] = 1.0; break; 
+        // ... add all other states and their corresponding index (38 total indices)
+        
+        // Default (or 'Others') should be the last index
+        default: stateArray[38 - 1] = 1.0; break; 
     }
     return stateArray;
 }
 
 
 // --- 2. Model Loading ---
-const modelPath = 'regression_model.onnx';
+// Ensure this modelPath EXACTLY matches the file name/capitalization on GitHub.
+const modelPath = 'regression_model.onnx'; 
 let session = null;
 async function loadModel() {
     try {
@@ -41,30 +46,41 @@ loadModel();
 
 // --- 3. Preprocessing (The heart of the deployment) ---
 function preprocessInputs() {
+    // 1. COLLECT INPUTS FROM HTML
     const rating = parseFloat(document.getElementById('rating').value);
     const age = parseFloat(document.getElementById('age').value);
     const jobState = document.getElementById('job_state').value;
     const python_yn = parseFloat(document.getElementById('python_yn').value);
     const R_yn = parseFloat(document.getElementById('R_yn').value);
-    // ... collect other binary features ...
+    
+    // FIX: Hardcode the 3 missing binary features to 0.0 since they aren't in the HTML form.
+    const spark_yn = 0.0; 
+    const aws_yn = 0.0;
+    const excel_yn = 0.0;
+    
 
+    // 2. APPLY STANDARD SCALING
     const scaledRating = (rating - RATING_MEAN) / RATING_STD;
     const scaledAge = (age - AGE_MEAN) / AGE_STD;
 
+    // 3. APPLY ONE-HOT ENCODING
     const oneHotStates = getOneHotState(jobState); 
 
-    // Combine all features into the final 45-element array (must be in correct order!)
+    // 4. CONSTRUCT FINAL ARRAY (MUST BE 45 ELEMENTS)
     const processedArray = [
-        // Scaled Numeric Features
+        // Scaled Numeric Features (2)
         scaledRating, scaledAge, 
-        // OHE State Features
+        
+        // OHE State Features (38)
         ...oneHotStates, 
-        // Binary Features (must include all 5 binary features in order: python_yn, R_yn, spark, aws, excel)
-        python_yn, R_yn, /* spark, aws, excel */
+        
+        // Binary Features (5 total, in correct order)
+        python_yn, R_yn, spark_yn, aws_yn, excel_yn, 
     ]; 
 
     if (processedArray.length !== 45) {
-         throw new Error(`Feature count mismatch: Expected 45, got ${processedArray.length}. Check your OHE array size.`);
+         // This error is displayed in the HTML output on failure
+         throw new Error(`Feature count mismatch: Expected 45, got ${processedArray.length}. Check your OHE array size or missing binary features.`);
     }
     
     return new Float32Array(processedArray);
@@ -84,12 +100,20 @@ async function runInference() {
         const feeds = { input: inputTensor };
         const results = await session.run(feeds);
         
+        // Assuming your model output is named 'output' and contains one prediction
         const predictedSalary = results.output.data[0]; 
 
         document.getElementById('output').innerText = 
             `Predicted Average Salary: $${predictedSalary.toFixed(2)}K`;
             
     } catch (e) {
+        // Displays the 'Feature count mismatch' error if it happens
         document.getElementById('output').innerText = `Prediction Error: ${e.message}`;
     }
 }
+            
+    } catch (e) {
+        document.getElementById('output').innerText = `Prediction Error: ${e.message}`;
+    }
+}
+
